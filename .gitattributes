@@ -1,0 +1,10 @@
+# Declare files that must be treated as binary so Git does not alter line endings
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.keystore binary
+
+# Ensure shell scripts retain LF line endings
+gradlew text eol=lf
+gradlew.bat text eol=crlf
