@@ -21,9 +21,25 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+
+      - name: Prepare Environment & Keystore
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            echo "Restoring debug.keystore from base64..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          else
+            echo "Generating debug.keystore..."
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          if [ ! -f .env ] && [ -f .env.example ]; then
+            echo "Creating .env from .env.example..."
+            cp .env.example .env
+          elif [ ! -f .env ]; then
+            touch .env
+          fi
 
       - name: Ensure valid Gradle Wrapper
         run: |
@@ -36,10 +52,11 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-configuration-cache --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --no-configuration-cache --stacktrace
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: barra-cloud-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
