@@ -1,0 +1,6 @@
+{
+  "name": "BARRA CLOUD",
+  "description": "Personal Media Server, Gallery, & File Server for Android STB with Tailscale support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
