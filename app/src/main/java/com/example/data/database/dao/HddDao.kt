@@ -9,6 +9,9 @@ interface HddDao {
     @Query("SELECT * FROM hdd_volumes ORDER BY label ASC")
     fun getAllHdds(): Flow<List<HddVolumeEntity>>
 
+    @Query("SELECT * FROM hdd_volumes ORDER BY label ASC")
+    suspend fun getAllHddsSync(): List<HddVolumeEntity>
+
     @Query("SELECT * FROM hdd_volumes WHERE isMounted = 1")
     fun getMountedHdds(): Flow<List<HddVolumeEntity>>
 

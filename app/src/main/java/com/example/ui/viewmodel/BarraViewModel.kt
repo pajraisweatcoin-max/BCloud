@@ -9,6 +9,9 @@ import com.example.data.repository.BarraRepository
 import com.example.data.repository.SystemStats
 import com.example.service.HddScannerEngine
 import com.example.service.SystemStatsMonitor
+import com.example.service.TailscaleNetworkManager
+import com.example.service.TailscaleNetworkInfo
+import com.example.service.ServerConnectionResult
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -17,6 +20,12 @@ class BarraViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = BarraRepository(application)
     private val scannerEngine = HddScannerEngine(application)
     private val statsMonitor = SystemStatsMonitor(application)
+    private val tailscaleManager = TailscaleNetworkManager(application)
+
+    val networkInfo: MutableStateFlow<TailscaleNetworkInfo> = MutableStateFlow(TailscaleNetworkInfo())
+    val connectionResult: MutableStateFlow<ServerConnectionResult?> = MutableStateFlow(null)
+    val isPinging: MutableStateFlow<Boolean> = MutableStateFlow(false)
+    val syncStatusMessage: MutableStateFlow<String> = MutableStateFlow("")
 
     val settings: StateFlow<BarraSettings> = repository.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), BarraSettings())
@@ -56,7 +65,41 @@ class BarraViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             statsMonitor.updateStats()
+            refreshNetworkInfo()
         }
+    }
+
+    fun refreshNetworkInfo() {
+        viewModelScope.launch {
+            networkInfo.value = tailscaleManager.detectNetworkInterfaces()
+        }
+    }
+
+    fun testServerConnection() {
+        viewModelScope.launch {
+            isPinging.value = true
+            val currSettings = settings.value
+            val result = tailscaleManager.pingServer(currSettings.serverIp, currSettings.serverPort)
+            connectionResult.value = result
+            isPinging.value = false
+        }
+    }
+
+    fun syncMediaWithRemoteServer() {
+        viewModelScope.launch {
+            syncStatusMessage.value = "Menghubungkan & Sinkronisasi..."
+            val currSettings = settings.value
+            val (success, msg) = tailscaleManager.fetchAndSyncMediaFromRemoteServer(currSettings.serverIp, currSettings.serverPort)
+            syncStatusMessage.value = msg
+        }
+    }
+
+    fun openTailscaleApp() {
+        tailscaleManager.openTailscaleApp()
+    }
+
+    fun openTailscaleConsole() {
+        tailscaleManager.openTailscaleAdminConsole()
     }
 
     fun switchMode(mode: String) {

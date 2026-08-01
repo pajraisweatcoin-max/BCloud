@@ -9,6 +9,9 @@ interface MediaDao {
     @Query("SELECT * FROM media_files ORDER BY dateAdded DESC")
     fun getAllMedia(): Flow<List<MediaFileEntity>>
 
+    @Query("SELECT * FROM media_files ORDER BY dateAdded DESC LIMIT 500")
+    suspend fun getAllMediaSync(): List<MediaFileEntity>
+
     @Query("SELECT * FROM media_files WHERE mediaType = :type ORDER BY dateAdded DESC")
     fun getMediaByType(type: String): Flow<List<MediaFileEntity>>
 

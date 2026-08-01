@@ -2,6 +2,7 @@ package com.example.service
 
 import android.content.Context
 import com.example.data.database.BarraDatabase
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.*
@@ -105,17 +106,46 @@ class BarraEmbeddedServer(private val context: Context, private val port: Int = 
 
     private fun handleHdds(output: OutputStream) {
         val arr = JSONArray()
-        val json = JSONObject().apply {
-            put("label", "Storage Utama")
-            put("mountPath", "/storage/emulated/0")
-            put("status", "MOUNTED")
+        try {
+            val list = runBlocking { db.hddDao().getAllHddsSync() }
+            list.forEach { hdd ->
+                val json = JSONObject().apply {
+                    put("volumeId", hdd.volumeId)
+                    put("label", hdd.label)
+                    put("mountPath", hdd.mountPath)
+                    put("totalSpaceBytes", hdd.totalSpaceBytes)
+                    put("freeSpaceBytes", hdd.freeSpaceBytes)
+                    put("isMounted", hdd.isMounted)
+                    put("fileSystem", hdd.fileSystem)
+                }
+                arr.put(json)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        arr.put(json)
         sendResponse(output, "200 OK", "application/json; charset=UTF-8", arr.toString().toByteArray())
     }
 
     private fun handleMedia(output: OutputStream) {
         val arr = JSONArray()
+        try {
+            val list = runBlocking { db.mediaDao().getAllMediaSync() }
+            list.forEach { media ->
+                val json = JSONObject().apply {
+                    put("id", media.id)
+                    put("fileName", media.fileName)
+                    put("path", media.path)
+                    put("mediaType", media.mediaType)
+                    put("fileSizeBytes", media.fileSizeBytes)
+                    put("mimeType", media.mimeType)
+                    put("isFavorite", media.isFavorite)
+                    put("parentPath", media.parentPath)
+                }
+                arr.put(json)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         sendResponse(output, "200 OK", "application/json; charset=UTF-8", arr.toString().toByteArray())
     }
 

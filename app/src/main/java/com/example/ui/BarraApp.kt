@@ -4,6 +4,7 @@ import android.os.Environment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -20,10 +21,15 @@ import com.example.data.database.entity.MediaFileEntity
 import com.example.ui.screens.*
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.BarraViewModel
+import java.io.File
+import java.security.MessageDigest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BarraApp(viewModel: BarraViewModel) {
+fun BarraApp(
+    viewModel: BarraViewModel,
+    onRequestPermissions: () -> Unit = {}
+) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val stats by viewModel.systemStats.collectAsStateWithLifecycle()
     val hdds by viewModel.allHdds.collectAsStateWithLifecycle()
@@ -37,15 +43,38 @@ fun BarraApp(viewModel: BarraViewModel) {
     val photosCount by viewModel.photosCount.collectAsStateWithLifecycle()
     val videosCount by viewModel.videosCount.collectAsStateWithLifecycle()
 
+    val networkInfo by viewModel.networkInfo.collectAsStateWithLifecycle()
+    val connectionResult by viewModel.connectionResult.collectAsStateWithLifecycle()
+    val isPinging by viewModel.isPinging.collectAsStateWithLifecycle()
+    val syncStatusMessage by viewModel.syncStatusMessage.collectAsStateWithLifecycle()
+
     var activeScreen by remember { mutableStateOf("DASHBOARD") }
     var selectedVideoForPlayback by remember { mutableStateOf<MediaFileEntity?>(null) }
+    var selectedImageForView by remember { mutableStateOf<MediaFileEntity?>(null) }
 
     if (selectedVideoForPlayback != null) {
         VideoPlayerScreen(
             videoPathOrUrl = selectedVideoForPlayback!!.path,
             initialPositionMs = selectedVideoForPlayback!!.playPositionMs,
             onBack = { selectedVideoForPlayback = null },
-            onSavePosition = { pos -> viewModel.addRecentView(selectedVideoForPlayback!!.path, selectedVideoForPlayback!!.fileName, "VIDEO", selectedVideoForPlayback!!.thumbnailPath) }
+            onSavePosition = { pos ->
+                viewModel.addRecentView(
+                    selectedVideoForPlayback!!.path,
+                    selectedVideoForPlayback!!.fileName,
+                    "VIDEO",
+                    selectedVideoForPlayback!!.thumbnailPath
+                )
+            }
+        )
+        return
+    }
+
+    if (selectedImageForView != null) {
+        ImageViewerScreen(
+            media = selectedImageForView!!,
+            onBack = { selectedImageForView = null },
+            onToggleFavorite = { id, current -> viewModel.toggleFavorite(id, current) },
+            onDelete = { id -> }
         )
         return
     }
@@ -164,70 +193,166 @@ fun BarraApp(viewModel: BarraViewModel) {
         },
         containerColor = SleekBackground
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            when (activeScreen) {
-                "DASHBOARD" -> DashboardScreen(
-                    stats = stats,
-                    hdds = hdds,
-                    totalMediaCount = totalMedia,
-                    photosCount = photosCount,
-                    videosCount = videosCount,
-                    queueCount = activeQueue.size,
-                    onTriggerScan = { viewModel.triggerScan() },
-                    onNavigateToHdd = { activeScreen = "HDD" },
-                    onNavigateToQueue = { activeScreen = "QUEUE" }
-                )
-                "HDD" -> HddStorageScreen(
-                    hdds = hdds,
-                    autoMergeLibrary = settings.autoMergeLibrary,
-                    onToggleMergeLibrary = { viewModel.updateToggle("autoMergeLibrary", it) },
-                    onTriggerScan = { viewModel.triggerScan() }
-                )
-                "GALLERY" -> GalleryScreen(
-                    mediaList = mediaList,
-                    onMediaClick = { media ->
-                        if (media.mediaType == "VIDEO") {
-                            selectedVideoForPlayback = media
+            // Permission request banner if no media detected
+            if (totalMedia == 0) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = M3PurpleSecondaryContainer),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Izin Penyimpanan Diperlukan",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = M3PurpleOnSecondaryContainer
+                            )
+                            Text(
+                                "Izinkan akses file & media agar foto, video & file lokal dapat di-scan.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
                         }
-                    },
-                    onToggleFavorite = { id, current -> viewModel.toggleFavorite(id, current) }
-                )
-                "FILES" -> FileManagerScreen(
-                    currentPath = Environment.getExternalStorageDirectory().absolutePath,
-                    trashItems = trashItems,
-                    onRestoreTrash = { id -> viewModel.restoreFromTrash(id) },
-                    onEmptyTrash = { viewModel.emptyTrash() }
-                )
-                "QUEUE" -> OfflineQueueScreen(
-                    queueList = activeQueue,
-                    queueEnabled = settings.offlineSyncQueueEnabled,
-                    onToggleQueue = { viewModel.updateToggle("offlineSyncQueueEnabled", it) },
-                    onUpdateStatus = { id, status -> viewModel.updateQueueStatus(id, status) },
-                    onUpdatePriority = { id, priority -> viewModel.updateQueuePriority(id, priority) },
-                    onDeleteItem = { id -> viewModel.deleteQueueItem(id) },
-                    onClearCompleted = { viewModel.clearCompletedQueue() }
-                )
-                "BACKUP" -> AutoBackupScreen(
-                    settings = settings,
-                    onToggleAutoBackup = { viewModel.updateToggle("autoBackup", it) },
-                    onUpdateBackupMode = { mode -> }
-                )
-                "ALERTS" -> AlertCenterScreen(
-                    alerts = alerts,
-                    onClearAlerts = { viewModel.clearAlerts() },
-                    onMarkRead = { id -> }
-                )
-                "SETTINGS" -> SettingsScreen(
-                    settings = settings,
-                    onToggle = { key, valBool -> viewModel.updateToggle(key, valBool) },
-                    onUpdateServerAddress = { ip, port -> viewModel.updateServerAddress(ip, port) }
-                )
-                "HELP" -> HelpCenterScreen()
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                onRequestPermissions()
+                                viewModel.triggerScan()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = M3PurplePrimary)
+                        ) {
+                            Text("Izinkan / Scan", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                when (activeScreen) {
+                    "DASHBOARD" -> DashboardScreen(
+                        appMode = settings.appMode,
+                        serverIp = settings.serverIp,
+                        serverPort = settings.serverPort,
+                        networkInfo = networkInfo,
+                        connectionResult = connectionResult,
+                        isPinging = isPinging,
+                        syncStatusMessage = syncStatusMessage,
+                        stats = stats,
+                        hdds = hdds,
+                        totalMediaCount = totalMedia,
+                        photosCount = photosCount,
+                        videosCount = videosCount,
+                        queueCount = activeQueue.size,
+                        onTriggerScan = { viewModel.triggerScan() },
+                        onTestConnection = { viewModel.testServerConnection() },
+                        onSyncRemote = { viewModel.syncMediaWithRemoteServer() },
+                        onOpenTailscaleApp = { viewModel.openTailscaleApp() },
+                        onNavigateToHdd = { activeScreen = "HDD" },
+                        onNavigateToQueue = { activeScreen = "QUEUE" }
+                    )
+                    "HDD" -> HddStorageScreen(
+                        hdds = hdds,
+                        autoMergeLibrary = settings.autoMergeLibrary,
+                        onToggleMergeLibrary = { viewModel.updateToggle("autoMergeLibrary", it) },
+                        onTriggerScan = { viewModel.triggerScan() }
+                    )
+                    "GALLERY" -> GalleryScreen(
+                        mediaList = mediaList,
+                        onMediaClick = { media ->
+                            if (media.mediaType == "VIDEO") {
+                                selectedVideoForPlayback = media
+                            } else if (media.mediaType == "IMAGE") {
+                                selectedImageForView = media
+                            }
+                        },
+                        onToggleFavorite = { id, current -> viewModel.toggleFavorite(id, current) }
+                    )
+                    "FILES" -> FileManagerScreen(
+                        currentPath = Environment.getExternalStorageDirectory().absolutePath,
+                        trashItems = trashItems,
+                        onOpenFile = { file ->
+                            val ext = file.extension.lowercase()
+                            val path = file.absolutePath
+                            val fileId = hashPath(path)
+                            val mediaType = when (ext) {
+                                "jpg", "jpeg", "png", "webp", "gif", "heic" -> "IMAGE"
+                                "mp4", "mkv", "avi", "mov", "webm" -> "VIDEO"
+                                else -> "OTHER"
+                            }
+                            val mediaEntity = MediaFileEntity(
+                                id = fileId,
+                                fileName = file.name,
+                                path = file.absolutePath,
+                                hddVolumeId = "INTERNAL_STORAGE",
+                                hddVolumeLabel = "STB Storage Utama",
+                                hddMountPath = "/storage/emulated/0",
+                                fileSizeBytes = file.length(),
+                                mediaType = mediaType,
+                                mimeType = "*/*",
+                                parentPath = file.parent ?: ""
+                            )
+                            if (mediaType == "VIDEO") {
+                                selectedVideoForPlayback = mediaEntity
+                            } else if (mediaType == "IMAGE") {
+                                selectedImageForView = mediaEntity
+                            }
+                        },
+                        onRestoreTrash = { id -> viewModel.restoreFromTrash(id) },
+                        onEmptyTrash = { viewModel.emptyTrash() }
+                    )
+                    "QUEUE" -> OfflineQueueScreen(
+                        queueList = activeQueue,
+                        queueEnabled = settings.offlineSyncQueueEnabled,
+                        onToggleQueue = { viewModel.updateToggle("offlineSyncQueueEnabled", it) },
+                        onUpdateStatus = { id, status -> viewModel.updateQueueStatus(id, status) },
+                        onUpdatePriority = { id, priority -> viewModel.updateQueuePriority(id, priority) },
+                        onDeleteItem = { id -> viewModel.deleteQueueItem(id) },
+                        onClearCompleted = { viewModel.clearCompletedQueue() }
+                    )
+                    "BACKUP" -> AutoBackupScreen(
+                        settings = settings,
+                        onToggleAutoBackup = { viewModel.updateToggle("autoBackup", it) },
+                        onUpdateBackupMode = { mode -> }
+                    )
+                    "ALERTS" -> AlertCenterScreen(
+                        alerts = alerts,
+                        onClearAlerts = { viewModel.clearAlerts() },
+                        onMarkRead = { id -> }
+                    )
+                    "SETTINGS" -> SettingsScreen(
+                        settings = settings,
+                        networkInfo = networkInfo,
+                        connectionResult = connectionResult,
+                        isPinging = isPinging,
+                        onToggle = { key, valBool -> viewModel.updateToggle(key, valBool) },
+                        onUpdateServerAddress = { ip, port -> viewModel.updateServerAddress(ip, port) },
+                        onTestConnection = { viewModel.testServerConnection() },
+                        onOpenTailscaleApp = { viewModel.openTailscaleApp() },
+                        onOpenTailscaleConsole = { viewModel.openTailscaleConsole() },
+                        onSwitchMode = { viewModel.switchMode(it) }
+                    )
+                    "HELP" -> HelpCenterScreen()
+                }
             }
         }
     }
+}
+
+private fun hashPath(path: String): String {
+    val bytes = MessageDigest.getInstance("MD5").digest(path.toByteArray())
+    return bytes.joinToString("") { "%02x".format(it) }
 }

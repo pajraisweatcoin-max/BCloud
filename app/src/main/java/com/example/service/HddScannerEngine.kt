@@ -83,8 +83,83 @@ class HddScannerEngine(private val context: Context) {
         }
 
         // Scan media files on detected HDDs
+        scanMediaStore(autoThumbnail)
         detectedHdds.forEach { hdd ->
             scanDirectory(File(hdd.mountPath), hdd, autoThumbnail)
+        }
+    }
+
+    private suspend fun scanMediaStore(autoThumbnail: Boolean) {
+        try {
+            val projection = arrayOf(
+                MediaStore.Files.FileColumns._ID,
+                MediaStore.Files.FileColumns.DATA,
+                MediaStore.Files.FileColumns.DISPLAY_NAME,
+                MediaStore.Files.FileColumns.SIZE,
+                MediaStore.Files.FileColumns.DATE_MODIFIED,
+                MediaStore.Files.FileColumns.MIME_TYPE
+            )
+            val cursor = context.contentResolver.query(
+                MediaStore.Files.getContentUri("external"),
+                projection,
+                null,
+                null,
+                "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
+            )
+            cursor?.use { c ->
+                val dataCol = c.getColumnIndex(MediaStore.Files.FileColumns.DATA)
+                val nameCol = c.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                val sizeCol = c.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
+                val dateCol = c.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED)
+                val mimeCol = c.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
+
+                val mediaList = mutableListOf<MediaFileEntity>()
+                while (c.moveToNext()) {
+                    val path = if (dataCol >= 0) c.getString(dataCol) else null
+                    if (path.isNullOrEmpty()) continue
+                    val name = if (nameCol >= 0) c.getString(nameCol) ?: File(path).name else File(path).name
+                    val size = if (sizeCol >= 0) c.getLong(sizeCol) else 0L
+                    val dateMod = if (dateCol >= 0) c.getLong(dateCol) * 1000 else System.currentTimeMillis()
+                    val mime = if (mimeCol >= 0) c.getString(mimeCol) ?: "" else ""
+
+                    if (name.startsWith(".")) continue
+                    val file = File(path)
+                    val fileId = hashPath(path)
+                    val mediaType = getMediaType(name)
+
+                    var thumbnailPath: String? = null
+                    if (autoThumbnail && (mediaType == "IMAGE" || mediaType == "VIDEO") && file.exists()) {
+                        thumbnailPath = generateThumbnail(file, fileId, mediaType)
+                    }
+
+                    val media = MediaFileEntity(
+                        id = fileId,
+                        fileName = name,
+                        path = path,
+                        hddVolumeId = "INTERNAL_STORAGE",
+                        hddVolumeLabel = "STB Storage Utama",
+                        hddMountPath = "/storage/emulated/0",
+                        fileSizeBytes = if (size > 0) size else if (file.exists()) file.length() else 0L,
+                        mediaType = mediaType,
+                        mimeType = mime.ifEmpty { getMimeType(name) },
+                        durationMs = 0,
+                        dateAdded = dateMod,
+                        dateModified = dateMod,
+                        parentPath = file.parent ?: "",
+                        thumbnailPath = thumbnailPath
+                    )
+                    mediaList.add(media)
+                    if (mediaList.size >= 50) {
+                        db.mediaDao().insertAll(mediaList)
+                        mediaList.clear()
+                    }
+                }
+                if (mediaList.isNotEmpty()) {
+                    db.mediaDao().insertAll(mediaList)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 

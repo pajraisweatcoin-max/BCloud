@@ -17,16 +17,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.database.entity.HddVolumeEntity
 import com.example.data.repository.SystemStats
+import com.example.service.ServerConnectionResult
+import com.example.service.TailscaleNetworkInfo
 import com.example.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
+    appMode: String,
+    serverIp: String,
+    serverPort: Int,
+    networkInfo: TailscaleNetworkInfo,
+    connectionResult: ServerConnectionResult?,
+    isPinging: Boolean,
+    syncStatusMessage: String,
     stats: SystemStats,
     hdds: List<HddVolumeEntity>,
     totalMediaCount: Int,
@@ -34,28 +45,44 @@ fun DashboardScreen(
     videosCount: Int,
     queueCount: Int,
     onTriggerScan: () -> Unit,
+    onTestConnection: () -> Unit,
+    onSyncRemote: () -> Unit,
+    onOpenTailscaleApp: () -> Unit,
     onNavigateToHdd: () -> Unit,
     onNavigateToQueue: () -> Unit
 ) {
+    val clipboardManager = LocalClipboardManager.current
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Top Server Status Header
+        // Mode & Server Active Card
         item {
-            ServerStatusHeaderCard(stats, onTriggerScan)
+            ServerStatusHeaderCard(appMode, stats, onTriggerScan)
         }
 
-        // Gauges Row (CPU, RAM, Storage, Bandwidth)
+        // Tailscale & Network Status Card (Functional Mode & Tailscale)
+        item {
+            TailscaleModeNetworkCard(
+                appMode = appMode,
+                serverIp = serverIp,
+                serverPort = serverPort,
+                networkInfo = networkInfo,
+                connectionResult = connectionResult,
+                isPinging = isPinging,
+                syncStatusMessage = syncStatusMessage,
+                onTestConnection = onTestConnection,
+                onSyncRemote = onSyncRemote,
+                onOpenTailscaleApp = onOpenTailscaleApp
+            )
+        }
+
+        // Gauges Row (CPU, RAM)
         item {
             GaugeGridSection(stats)
-        }
-
-        // Tailscale & Viewer Status Row
-        item {
-            NetworkAndViewerCard(stats)
         }
 
         // Quick Media Stats Row
@@ -125,7 +152,7 @@ fun DashboardScreen(
 }
 
 @Composable
-fun ServerStatusHeaderCard(stats: SystemStats, onTriggerScan: () -> Unit) {
+fun ServerStatusHeaderCard(appMode: String, stats: SystemStats, onTriggerScan: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -145,24 +172,24 @@ fun ServerStatusHeaderCard(stats: SystemStats, onTriggerScan: () -> Unit) {
                         modifier = Modifier
                             .size(10.dp)
                             .clip(CircleShape)
-                            .background(EmeraldSuccess)
+                            .background(if (appMode == "SERVER") EmeraldSuccess else CyanAccent)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "BARRA SERVER ONLINE",
+                        text = if (appMode == "SERVER") "MODE SERVER (STB HOST)" else "MODE VIEWER (CLIENT)",
                         style = MaterialTheme.typography.labelMedium,
-                        color = EmeraldSuccess,
+                        color = if (appMode == "SERVER") EmeraldSuccess else CyanAccent,
                         fontWeight = FontWeight.Bold
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Uptime: ${stats.uptimeSeconds / 3600}d ${ (stats.uptimeSeconds % 3600) / 60 }m",
+                    text = "Uptime Sistem: ${stats.uptimeSeconds / 3600}j ${ (stats.uptimeSeconds % 3600) / 60 }m",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
                 Text(
-                    text = "Scanner: ${stats.scannerStatus}",
+                    text = "Scanner Engine: ${stats.scannerStatus}",
                     style = MaterialTheme.typography.bodySmall,
                     color = M3PurplePrimary,
                     fontWeight = FontWeight.Medium
@@ -176,6 +203,144 @@ fun ServerStatusHeaderCard(stats: SystemStats, onTriggerScan: () -> Unit) {
                     .background(M3PurplePrimaryContainer)
             ) {
                 Icon(Icons.Default.Refresh, contentDescription = "Rescan", tint = M3PurpleOnPrimaryContainer)
+            }
+        }
+    }
+}
+
+@Composable
+fun TailscaleModeNetworkCard(
+    appMode: String,
+    serverIp: String,
+    serverPort: Int,
+    networkInfo: TailscaleNetworkInfo,
+    connectionResult: ServerConnectionResult?,
+    isPinging: Boolean,
+    syncStatusMessage: String,
+    onTestConnection: () -> Unit,
+    onSyncRemote: () -> Unit,
+    onOpenTailscaleApp: () -> Unit
+) {
+    val clipboard = LocalClipboardManager.current
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (networkInfo.isTailscaleVpnActive) SleekSurfaceVariant else M3PurpleSecondaryContainer
+        ),
+        border = BorderStroke(1.dp, SleekBorder)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (networkInfo.isTailscaleVpnActive) M3PurplePrimary else RoseError.copy(alpha = 0.8f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VpnKey,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Tailscale Network & VPN",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = if (networkInfo.isTailscaleVpnActive) "VPN Terdeteksi / Tun Active" else "Tailscale Belum Terhubung",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (networkInfo.isTailscaleVpnActive) EmeraldSuccess else AmberWarning
+                        )
+                    }
+                }
+
+                TextButton(onClick = onOpenTailscaleApp) {
+                    Text("Buka App", color = CyanAccent, fontSize = 12.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = SleekBorder)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (appMode == "SERVER") {
+                // SERVER MODE INFORMATION
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("IP Tailscale STB: ${networkInfo.tailscaleIp ?: "Belum Ada (Buka App Tailscale)"}", fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text("IP LAN Local: ${networkInfo.localIp ?: "127.0.0.1"}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Text("Embedded HTTP Server Port: $serverPort (Ready)", style = MaterialTheme.typography.bodySmall, color = EmeraldSuccess)
+                    Text("API Endpoint: http://${networkInfo.tailscaleIp ?: networkInfo.localIp ?: "localhost"}:$serverPort/api/status", style = MaterialTheme.typography.bodySmall, color = M3PurplePrimary)
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                val ip = networkInfo.tailscaleIp ?: networkInfo.localIp ?: ""
+                                if (ip.isNotEmpty()) {
+                                    clipboard.setText(AnnotatedString("http://$ip:$serverPort"))
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = M3PurplePrimaryContainer)
+                        ) {
+                            Text("Salin URL Server", color = M3PurpleOnPrimaryContainer, fontSize = 12.sp)
+                        }
+                    }
+                }
+            } else {
+                // VIEWER MODE INFORMATION
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Target Server IP: http://$serverIp:$serverPort", fontWeight = FontWeight.Bold, color = TextPrimary)
+
+                    if (connectionResult != null) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (connectionResult.isSuccess) EmeraldSuccess.copy(alpha = 0.2f) else RoseError.copy(alpha = 0.2f)
+                        ) {
+                            Text(
+                                text = connectionResult.message,
+                                color = if (connectionResult.isSuccess) EmeraldSuccess else RoseError,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = onTestConnection,
+                            enabled = !isPinging,
+                            colors = ButtonDefaults.buttonColors(containerColor = M3PurplePrimaryContainer)
+                        ) {
+                            Text(if (isPinging) "Mengecek..." else "Tes Ping Server", color = M3PurpleOnPrimaryContainer, fontSize = 12.sp)
+                        }
+
+                        Button(
+                            onClick = onSyncRemote,
+                            colors = ButtonDefaults.buttonColors(containerColor = CyanPrimaryContainer)
+                        ) {
+                            Text("Sync Media Server", color = CyanAccent, fontSize = 12.sp)
+                        }
+                    }
+
+                    if (syncStatusMessage.isNotEmpty()) {
+                        Text(syncStatusMessage, style = MaterialTheme.typography.bodySmall, color = CyanAccent)
+                    }
+                }
             }
         }
     }
@@ -226,53 +391,6 @@ fun GaugeTile(title: String, value: String, progress: Float, color: Color, modif
                 color = color,
                 trackColor = SleekBorder
             )
-        }
-    }
-}
-
-@Composable
-fun NetworkAndViewerCard(stats: SystemStats) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = M3PurpleSecondaryContainer)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(M3PurplePrimary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.VpnKey, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(text = "TAILSCALE VPN", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = M3PurpleOnSecondaryContainer)
-                    Text(text = stats.tailscaleIp, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = SleekSurface.copy(alpha = 0.7f)
-            ) {
-                Text(
-                    text = "CONNECTED",
-                    color = M3PurplePrimary,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
         }
     }
 }
